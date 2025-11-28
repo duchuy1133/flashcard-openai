@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Flashcard – Chủ động học từ vựng</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body { font-family: Arial, sans-serif; background: #f2f4f7; padding: 18px; }
+    .container { max-width: 900px; margin: auto; background: #fff; padding: 24px;
+      border-radius: 14px; box-shadow: 0 5px 20px rgba(0,0,0,0.12); }
+
+    #textArea { border: 1px solid #ccc; padding: 12px; min-height: 150px;
+      border-radius: 8px; background: #fafafa; }
+
+    .flashcard { width: 300px; height: 200px; perspective: 1000px; margin: 20px auto; cursor: pointer; }
+    .inner { width: 100%; height: 100%; transition: .6s; transform-style: preserve-3d; position: relative; }
+    .flipped .inner { transform: rotateY(180deg); }
+
+    .side {
+      position: absolute; width: 100%; height: 100%; backface-visibility: hidden;
+      border-radius: 14px; background: white; padding: 20px;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .back { transform: rotateY(180deg); }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; font-size: 14px; }
+    th { background: #eee; }
+  </style>
+</head>
+
+<body>
+<div class="container">
+
+  <h2>✨ Flashcard – Bôi đen 1 từ tiếng Anh để xem nghĩa</h2>
+
+  <div id="textArea" contenteditable="true">
+    Paste đoạn văn vào đây rồi bôi đen 1 từ tiếng Anh bất kỳ…
+  </div>
+
+  <p>Từ đã chọn: <b id="selectedWord">–</b></p>
+  <p id="status">⏳ Đang tải dữ liệu từ Google Sheet...</p>
+
+  <div id="flashcardContainer"></div>
+
+  <h3>📚 Danh sách từ đã học</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Word</th>
+        <th>IPA</th>
+        <th>Meaning</th>
+        <th>Example</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+</div>
+
+<script>
+
+let dictionary = {};
+
+// LINK CSV Google Sheet của anh
+const SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vT-jY5M7TU_NLeGdbIA5jczQI1tkJVW4FFb_zwOQm1G3qBkl8n38l-X4QKbd2iXjLSdKBt22hAWbJn8/pub?gid=0&single=true&output=csv";
+
+// ===== 1) Load CSV từ Google Sheet =====
+async function loadCSV() {
+  try {
+    const res = await fetch(SHEET_URL);
+    let csv = await res.text();
+
+    let lines = csv.split(/\r?\n/);
+    lines.shift(); // remove header
+
+    lines.forEach(line => {
+      if (!line.trim()) return;
+      let parsed = parseCSV(line);
+      if (parsed.length < 4) return;
+
+      let word = parsed[0].trim().toLowerCase();
+      dictionary[word] = {
+        word,
+        ipa: parsed[1].trim(),
+        meaning: parsed[2].trim(),
+        example: parsed[3].trim(),
+      };
+    });
+
+    document.getElementById("status").innerText = "✅ Đã tải xong dữ liệu từ Google Sheet.";
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").innerText = "❌ Không thể tải dữ liệu.";
+  }
+}
+loadCSV();
+
+// ===== CSV PARSER CHUẨN (xử lý dấu phẩy và dấu ngoặc kép) =====
+function parseCSV(str) {
+  let arr = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let i = 0; i < str.length; i++) {
+    let c = str[i], nc = str[i+1];
+
+    if (c === '"' && insideQuotes && nc === '"') {
+      current += '"';
+      i++;
+    } else if (c === '"') {
+      insideQuotes = !insideQuotes;
+    } else if (c === "," && !insideQuotes) {
+      arr.push(current); current = "";
+    } else {
+      current += c;
+    }
+  }
+  arr.push(current);
+  return arr;
+}
+
+// ===== 2) Bôi đen chữ =====
+document.addEventListener("mouseup", handleSelection);
+document.addEventListener("keyup", handleSelection);
+
+function handleSelection() {
+  let raw = window.getSelection().toString().trim();
+  if (!raw) return;
+
+  let word = raw.replace(/[^A-Za-z]/g, "").toLowerCase();
+  if (!word) return;
+
+  document.getElementById("selectedWord").innerText = word;
+
+  if (!dictionary[word]) {
+    document.getElementById("status").innerText = "❌ Từ này chưa có trong bảng.";
+    return;
+  }
+
+  showFlashcard(dictionary[word]);
+  saveToHistory(dictionary[word]);
+  document.getElementById("status").innerText = "✨ Đã tạo flashcard.";
+}
+
+// ===== 3) Hiển thị Flashcard =====
+function showFlashcard(card) {
+  document.getElementById("flashcardContainer").innerHTML = `
+    <div class="flashcard" onclick="this.classList.toggle('flipped')">
+      <div class="inner">
+        <div class="side front">
+          <h2>${card.word}</h2>
+          <i>${card.ipa}</i>
+        </div>
+        <div class="side back">
+          <p><b>Nghĩa:</b> ${card.meaning}</p>
+          <p><b>Ví dụ:</b> ${card.example}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===== 4) Lưu lịch sử =====
+function saveToHistory(card) {
+  let list = JSON.parse(localStorage.getItem("history") || "[]");
+  if (!list.some(i => i.word === card.word)) {
+    list.push(card);
+    localStorage.setItem("history", JSON.stringify(list));
+  }
+  renderTable();
+}
+
+function renderTable() {
+  let body = document.getElementById("tableBody");
+  body.innerHTML = "";
+  let list = JSON.parse(localStorage.getItem("history") || "[]");
+
+  list.forEach(item => {
+    body.innerHTML += `
+      <tr>
+        <td>${item.word}</td>
+        <td>${item.ipa}</td>
+        <td>${item.meaning}</td>
+        <td>${item.example}</td>
+      </tr>
+    `;
+  });
+}
+renderTable();
+
+</script>
+</body>
+</html>
